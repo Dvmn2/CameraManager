@@ -74,7 +74,3 @@ CameraShakeHandler.start(angleDelta, positionDelta, durationTicks);
   (переводится в блоки через `POSITION_SCALE = 0.01f`).
 - `durationTicks` — длительность в тиках; `0` сбрасывает все текущие
   тряcки, отрицательное значение игнорируется.
-
-## Лицензия
-
-All Rights Reserved.
