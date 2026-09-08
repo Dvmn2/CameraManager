@@ -9,7 +9,7 @@
   ],
   "contact": {},
   "license": "All-Rights-Reserved",
-  "icon": "assets/cameramanager/icon.png",
+  "icon": "assets/icon.png",
   "environment": "client",
   "entrypoints": {
     "fabric-datagen": [
