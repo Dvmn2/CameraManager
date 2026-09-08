@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "cameramanager",
+  "version": "${version}",
+  "name": "CameraManager",
+  "description": "",
+  "authors": [
+    "DVMN2"
+  ],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/cameramanager/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-datagen": [
+      "net.dvmn2.cameramanager.client.CameraManagerDataGenerator"
+    ],
+    "client": [
+      "net.dvmn2.cameramanager.client.CameraManagerClient"
+    ],
+    "main": [
+      "net.dvmn2.cameramanager.CameraManager"
+    ]
+  },
+  "mixins": [
+    "cameramanager.mixins.json",
+    {
+      "config": "cameramanager.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
