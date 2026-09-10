@@ -1,6 +1,5 @@
 package net.dvmn2.cameramanager.client.shake;
 
-import net.dvmn2.cameramanager.client.CameraManagerClient;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.util.math.random.Random;
 
@@ -9,42 +8,36 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * Класс отвечает за состояние тряски камеры на стороне клиента.
+ * Хранит и обсчитывает все активные "тряски камеры" на клиенте.
+ * Каждый ShakeInstance затухает линейно-квадратично (fadeFactor) от 1 до 0
+ * за время своей длительности в тиках.
  * <p>
- * Поддерживает НЕСКОЛЬКО одновременных независимых тряcок: каждая живёт
- * своим таймером/затуханием, а итоговое смещение камеры — сумма вкладов
- * всех активных на данный момент тряcок. Благодаря этому, если поверх
- * длинной тряски накладывается короткая, в момент наложения амплитуды
- * складываются, а после окончания короткой — длинная продолжает трясти
- * камеру как ни в чём не бывало.
+ * Все методы статические и вызываются только с клиентского (main) потока —
+ * из ClientTickEvents и из миксина в Camera#update, поэтому синхронизация
+ * коллекции {@link #shakes} не требуется.
  * <p>
- * Само применение смещения к камере происходит не здесь, а в
- * {@link net.dvmn2.cameramanager.client.mixin.ShakeMixin} — этот класс только
- * хранит состояние всех активных тряcок и отдаёт суммарные значения
- * смещений по запросу.
+ * Holds and computes all active client-side "camera shakes". Each
+ * ShakeInstance fades out (fadeFactor) from 1 to 0 over its duration in ticks.
+ * <p>
+ * All methods are static and only ever called from the client main thread
+ * (ClientTickEvents and the Camera#update mixin), so the {@link #shakes}
+ * collection does not need synchronization.
  */
 public class CameraShakeHandler {
 
-    /**
-     * Множитель для перевода "сырых" единиц позиции (из пакета/команды) в блоки мира.
-     */
+    // Множитель, переводящий "position_delta" (целое число из команды/пакета)
+    // в реальное смещение камеры в блоках.
+    //
+    // Multiplier converting "position_delta" (an integer from the command/packet)
+    // into an actual camera offset in blocks.
     private static final float POSITION_SCALE = 0.01f;
 
-    /**
-     * Общий генератор случайных чисел для расчёта дрожания.
-     */
     private static final Random RANDOM = Random.create();
 
-    /**
-     * Список всех активных тряcок. Работаем с ним только на клиентском
-     * main-потоке (tick() вызывается из END_CLIENT_TICK, а входящий пакет
-     * оборачивается в context.client().execute(...) в ShakeModClient),
-     * поэтому обычный ArrayList безопасен — синхронизация не нужна.
-     */
     private static final List<ShakeInstance> shakes = new ArrayList<>();
 
     /**
-     * Одна независимая тряска: свои амплитуды, свой прогресс и своё затухание.
+     * Одна активная тряска со своим углом, смещением и оставшимся временем жизни.
      */
     private static final class ShakeInstance {
         final float rotation;
@@ -60,38 +53,32 @@ public class CameraShakeHandler {
         }
 
         /**
-         * Коэффициент затухания ЭТОЙ КОНКРЕТНОЙ тряски: 1 в начале, 0 в конце.
-         * Квадратичная кривая — тряска "успокаивается" быстрее к концу.
+         * Коэффициент затухания: 1.0 в начале, 0.0 в конце (по квадратичной кривой).
          */
         float fadeFactor() {
             if (totalDuration <= 0) return 0f;
-            float t = (float) ticksLeft / (float) totalDuration; // 1 -> 0
+            float t = (float) ticksLeft / (float) totalDuration;
             return t * t;
         }
     }
 
     /**
-     * Запускает новый, независимый эффект тряски камеры, ДОБАВЛЯЯ его
-     * к уже идущим (если они есть), а не заменяя их.
-     *
-     * @param angle_delta    максимальный угол отклонения камеры (градусы)
-     * @param position_delta максимальное смещение камеры (в "сырых" единицах, см. POSITION_SCALE)
-     * @param duration       длительность эффекта в тиках
+     * Запускает новую тряску. Тряски с duration <= 0 игнорируются.
      */
     public static void start(int angle_delta, int position_delta, int duration) {
-        if (duration < 0) return; // тряска отрицательной длительности не имеет смысла
-        if (duration == 0) {      // считаем тряску нулевой длительности за сброс инстансов
-            shakes.clear();
-            return;
-        }
+        if (duration <= 0) return;
         shakes.add(new ShakeInstance(angle_delta, position_delta, duration));
     }
 
     /**
-     * Вызывается каждый клиентский тик (см. {@link CameraManagerClient}).
-     * Уменьшает оставшееся время у КАЖДОЙ активной тряски и удаляет те,
-     * что закончились. Само дрожание камеры считается "лениво", по
-     * запросу, через getXxxOffset()-методы ниже.
+     * Немедленно останавливает все активные тряски (используется и по сетевой команде, и при дисконнекте).
+     */
+    public static void stopAll() {
+        shakes.clear();
+    }
+
+    /**
+     * Вызывается каждый игровой тик клиента — уменьшает оставшееся время жизни тряски и удаляет завершённые.
      */
     public static void tick(MinecraftClient client) {
         if (shakes.isEmpty()) return;
@@ -108,10 +95,9 @@ public class CameraShakeHandler {
         }
     }
 
-    /**
-     * Суммарное случайное смещение по рысканию (yaw) камеры — сумма вкладов
-     * всех активных тряcок, каждая со своей амплитудой и своим затуханием.
-     */
+    // Ниже — четыре независимых источника случайного смещения (yaw/pitch/right/up).
+    // Below — four independent random offset sources (yaw/pitch/right/up).
+
     public static float getYawOffset() {
         float sum = 0f;
         for (ShakeInstance s : shakes) {
@@ -120,9 +106,6 @@ public class CameraShakeHandler {
         return sum;
     }
 
-    /**
-     * Суммарное случайное смещение по тангажу (pitch) камеры.
-     */
     public static float getPitchOffset() {
         float sum = 0f;
         for (ShakeInstance s : shakes) {
@@ -131,9 +114,6 @@ public class CameraShakeHandler {
         return sum;
     }
 
-    /**
-     * Суммарное случайное смещение камеры вдоль локальной горизонтальной оси.
-     */
     public static float getRightOffset() {
         float sum = 0f;
         for (ShakeInstance s : shakes) {
@@ -142,9 +122,6 @@ public class CameraShakeHandler {
         return sum;
     }
 
-    /**
-     * Суммарное случайное смещение камеры вдоль локальной вертикальной оси.
-     */
     public static float getUpOffset() {
         float sum = 0f;
         for (ShakeInstance s : shakes) {
@@ -153,9 +130,6 @@ public class CameraShakeHandler {
         return sum;
     }
 
-    /**
-     * true, если есть хотя бы одна активная тряска.
-     */
     public static boolean isShaking() {
         return !shakes.isEmpty();
     }

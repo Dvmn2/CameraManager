@@ -14,14 +14,26 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Миксин к {@link Camera}, применяющий эффект тряски ПОСЛЕ того, как
- * ванильная логика уже полностью обновила положение и поворот камеры
- * (инъекция в TAIL метода update()).
+ * Миксин в Camera#update: после стандартного пересчёта позиции/поворота камеры
+ * (в конце метода — @At("TAIL")) добавляет случайное смещение угла и позиции,
+ * если в CameraShakeHandler есть активные тряски.
  * <p>
- * Мы не пересчитываем камеру заново, а лишь добавляем небольшое случайное
- * смещение поверх уже вычисленных ванильных значений — это самый безопасный
- * способ не сломать взаимодействие с другими модами/ванильной логикой камеры
- * (третье лицо, инвертированный вид и т.д.).
+ * ВАЖНО: имена @Shadow-методов ниже (getYaw/getPitch/setRotation/getCameraPos/
+ * setPos/getHorizontalPlane/getVerticalPlane) и сигнатура "update" зависят от
+ * используемых маппингов (Yarn/Mojmap) и версии Minecraft. При смене версии
+ * стоит перепроверить их через genSources/сборку — иначе сборка просто не
+ * скомпилируется, миксин не является "тихим" источником багов.
+ * <p>
+ * Mixin into Camera#update: after the vanilla position/rotation recompute
+ * (at the end of the method — @At("TAIL")), adds a random rotation/position
+ * offset whenever CameraShakeHandler has active shakes.
+ * <p>
+ * IMPORTANT: the @Shadow method names below (getYaw/getPitch/setRotation/
+ * getCameraPos/setPos/getHorizontalPlane/getVerticalPlane) and the "update"
+ * signature depend on the mappings (Yarn/Mojmap) and Minecraft version in use.
+ * Re-verify them via genSources/a build whenever you bump the MC version —
+ * otherwise the build simply won't compile, this mixin isn't a silent source
+ * of bugs.
  */
 @Mixin(Camera.class)
 public abstract class ShakeMixin {
@@ -41,35 +53,34 @@ public abstract class ShakeMixin {
     @Shadow
     protected abstract void setPos(double x, double y, double z);
 
-    /**
-     * Единичный вектор "вправо" относительно текущей ориентации камеры.
-     */
     @Shadow
     public abstract Vector3fc getHorizontalPlane();
 
-    /**
-     * Единичный вектор "вверх" относительно текущей ориентации камеры.
-     */
     @Shadow
     public abstract Vector3fc getVerticalPlane();
 
     @Inject(method = "update", at = @At("TAIL"))
     private void applyShake(World area, Entity focusedEntity, boolean thirdPerson,
                             boolean inverseView, float tickDelta, CallbackInfo ci) {
-        // Если тряска сейчас не активна — ничего не делаем и не трогаем камеру,
-        // чтобы не тратить случайные числа и не создавать дрожание "по ошибке".
+        // Если тряски нет — ничего не делаем, камера остаётся в исходном положении.
+        // If there's no active shake — do nothing, keep the camera as-is.
         if (!CameraShakeHandler.isShaking()) return;
 
-        // --- Тряска угла обзора ---
+        // Смещение поворота камеры (в градусах).
+        // Camera rotation offset (in degrees).
         float yawOffset = CameraShakeHandler.getYawOffset();
         float pitchOffset = CameraShakeHandler.getPitchOffset();
         this.setRotation(this.getYaw() + yawOffset, this.getPitch() + pitchOffset);
 
-        // --- Тряска позиции ---
-        // Смещаем камеру вдоль её ЛОКАЛЬНЫХ осей (right/up), а не мировых
-        // (x/y/z), чтобы эффект выглядел как дрожание "в руках" игрока,
-        // а не как хаотичный сдвиг по карте вне зависимости от того, куда
-        // игрок смотрит.
+        // Смещение позиции камеры вдоль локальных осей "вправо" и "вверх"
+        // относительно текущей ориентации камеры (уже с учётом нового поворота выше не пересчитывается,
+        // используются плоскости, посчитанные до применения нового rotation в этом тике —
+        // приемлемо, т.к. угол смещения обычно небольшой и эффект незаметен на глаз).
+        //
+        // Camera position offset along the local "right" and "up" axes relative
+        // to the camera's current orientation (these planes are taken before this
+        // tick's new rotation is applied above — acceptable since the shake angle
+        // is small and the effect isn't visually noticeable).
         Vector3fc right = this.getHorizontalPlane();
         Vector3fc up = this.getVerticalPlane();
         float rightOffset = CameraShakeHandler.getRightOffset();

@@ -6,33 +6,19 @@ import net.minecraft.network.packet.CustomPayload;
 import net.minecraft.util.Identifier;
 
 /**
- * Сетевой пакет направления сервер -> клиент (S2C), которым сервер сообщает
- * клиенту параметры тряски камеры.
+ * Пакет "начать тряску камеры" (S2C). Идентификатор "cameramanager:shake"
+ * ДОЛЖЕН совпадать с каналом ShakeCommand.CHANNEL_ADD на сервере, а порядок
+ * writeInt/readInt — с порядком записи в ShakeCommand#add (angle, position, duration).
  * <p>
- * ВАЖНО: идентификатор "cameramanager:shake" должен совпадать с каналом, который
- * использует серверный плагин (см. {@code ShakeCommand.CHANNEL} в модуле
- * плагина), так как плагин отправляет "сырые" байты через Bukkit Plugin
- * Messaging API, а не напрямую через Fabric Networking API — сервер ведь
- * не является Fabric-сервером, это Paper.
- *
- * @param angle_delta    максимальный угол отклонения камеры (градусы)
- * @param position_delta максимальное смещение камеры (сырые единицы, см. CameraShakeHandler.POSITION_SCALE)
- * @param duration       длительность эффекта в тиках
+ * "Start camera shake" packet (S2C). The "cameramanager:shake" identifier
+ * MUST match ShakeCommand.CHANNEL_ADD on the server, and the writeInt/readInt
+ * order must match ShakeCommand#add's write order (angle, position, duration).
  */
 public record CameraShakePayload(int angle_delta, int position_delta, int duration) implements CustomPayload {
 
-    /**
-     * Идентификатор пакета — используется и при регистрации на клиенте, и как имя канала на сервере.
-     */
     public static final Id<CameraShakePayload> ID =
             new Id<>(Identifier.of("cameramanager", "shake"));
 
-    /**
-     * Кодек сериализации/десериализации пакета.
-     * Порядок записи/чтения полей должен строго совпадать с порядком,
-     * в котором сервер пишет данные через ByteArrayDataOutput в ShakeCommand,
-     * иначе значения перепутаются местами без каких-либо явных ошибок.
-     */
     public static final PacketCodec<PacketByteBuf, CameraShakePayload> CODEC = PacketCodec.of(
             (payload, buf) -> {
                 buf.writeInt(payload.angle_delta());
