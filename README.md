@@ -1,76 +1,42 @@
 # CameraManager
 
-Клиентский мод для **Fabric (Minecraft 1.21.11)** для удобного управления камерами игроков.
-Пока отвечающий только за плавную тряску камеры игрока.
-Мод пассивен: сам по себе он ничего не делает, пока
-не получит команду на тряску — по сети (например, от парного серверного
-плагина **[CameraManagerPlugin](https://github.com/Dvmn2/CameraManagerPlugin)**)
-или из любого другого источника, вызывающего `CameraShakeHandler.start(...)`.
+Fabric client mod for Minecraft 1.21.11. Applies camera effects received from the companion CameraManagerPlugin Paper
+plugin.
 
-> Мод и плагин — два независимых проекта. Мод не требует наличия плагина
-> на сервере и не завязан на Paper/Bukkit API; он лишь слушает сетевой
-> пакет с фиксированным идентификатором `cameramanager:shake`.
+This project is under active development. The only implemented feature at this time is camera shake.
 
-## Возможности
+## Requirements
 
-- 🎥 Тряска камеры по углу (yaw/pitch) и по позиции (локальные оси
-  right/up), без искажения ванильной логики камеры.
-- 🌀 Поддержка **нескольких одновременных независимых тряcок**: амплитуды
-  складываются, каждая тряска затухает по собственной квадратичной кривой
-  и живёт своё время.
-- 🧵 Потокобезопасная логика: обработка сетевого пакета всегда
-  выполняется в основном клиентском потоке.
-- 🪶 Лёгкий mixin в `TAIL` метода `Camera#update()` — эффект накладывается
-  поверх уже посчитанной ванильной камеры, не переопределяя её. Совместим
-  с видом от первого/третьего лица и инвертированным видом.
-
-## Как это работает
-
-1. При инициализации клиента (`CameraManagerClient`) регистрируется тип
-   пакета `CameraShakePayload` (S2C) и обработчик на канал
-   `cameramanager:shake`.
-2. При получении пакета вызывается
-   `CameraShakeHandler.start(angle_delta, position_delta, duration)`,
-   который добавляет новый независимый экземпляр тряски в общий список.
-3. Каждый клиентский тик (`ClientTickEvents.END_CLIENT_TICK`)
-   `CameraShakeHandler` уменьшает оставшееся время каждой активной тряски
-   и удаляет завершившиеся.
-4. `ShakeMixin`, инжектированный в `Camera#update()`, на каждом кадре
-   запрашивает суммарное смещение по всем активным тряcкам и добавляет его
-   к уже вычисленным ванильным yaw/pitch и позиции камеры.
-
-Формат пакета — три `int`-а подряд (`angle_delta`, `position_delta`,
-`duration`), записанные в строго фиксированном порядке. Это единственное,
-что должно совпадать у любого отправителя пакета (не обязательно Bukkit
-плагин — подойдёт любой сервер/мод, который отправит S2C plugin message на
-канал `cameramanager:shake` с такими же тремя `int`).
-
-## Установка
-
-1. Установите **Fabric Loader** и **Fabric API** для Minecraft 1.21.11.
-2. Положите `.jar` мода в папку `mods/`.
-3. Запустите игру.
-
-Мод — **client-side only**: ставить его на dedicated Fabric-сервер не
-нужно (в `fabric.mod.json` указано `"environment": "client"`).
-
-## Требования
-
-- Minecraft 1.21.11
-- Fabric Loader (см. точную версию в файле релиза)
+- Fabric Loader
 - Fabric API
-- Java 21+
+- Minecraft 1.21.11
+- Client-side only; this mod is not required on the server, but a server running CameraManagerPlugin is required to
+  trigger effects
 
-## Для разработчиков
+## Features
 
-Если вы хотите триггерить тряску не через сеть, а напрямую из своего мода:
+### Camera shake
 
-```java
-CameraShakeHandler.start(angleDelta, positionDelta, durationTicks);
-```
+Applies a temporary, randomized offset to camera rotation and position. The shake fades out over its configured duration
+and does not persist across disconnecting from a server.
 
-- `angleDelta` — амплитуда угла в градусах.
-- `positionDelta` — амплитуда смещения в «сырых» единицах
-  (переводится в блоки через `POSITION_SCALE = 0.01f`).
-- `durationTicks` — длительность в тиках; `0` сбрасывает все текущие
-  тряcки, отрицательное значение игнорируется.
+## How it works
+
+The mod listens for two custom network payloads sent by the server plugin:
+
+- `cameramanager:shake` — starts a shake with the given angle offset, position offset, and duration (in ticks)
+- `cameramanager:shake_stop` — clears all active shakes
+
+Camera offsets are applied via a mixin into `Camera#update`, after the vanilla camera position and rotation have been
+computed.
+
+## Installation
+
+1. Install Fabric Loader and Fabric API for Minecraft 1.21.11.
+2. Place the mod jar in the `mods` folder.
+3. Connect to a server running CameraManagerPlugin to receive camera effects.
+
+## Notes
+
+Installing this mod without a server running CameraManagerPlugin has no visible effect, as the mod does not trigger any
+effects on its own.
